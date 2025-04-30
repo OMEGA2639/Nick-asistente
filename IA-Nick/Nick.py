@@ -1,137 +1,118 @@
 import speech_recognition as sr
 import pyttsx3
-import datetime
-import os
 import webbrowser
+import os
+import requests
+import datetime
 
-# Inicializar motor de voz
-voz = pyttsx3.init()
-voz.setProperty('rate', 170)
-voz.setProperty('volume', 1.0)
+# Inicializa la voz
+engine = pyttsx3.init()
+engine.setProperty('voice', 'HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Speech\\Voices\\Tokens\\TTS_MS_ES-ES_HELENA_11.0')
+engine.setProperty('rate', 165)
 
-# Cambiar a voz masculina
-def cambiar_voz_masculina():
-    for v in voz.getProperty('voices'):
-        if "David" in v.name or "Mark" in v.name or "male" in v.name.lower():
-            voz.setProperty('voice', v.id)
-            break
+nombre_asistente = "Nick"
+usuario = "Anderson"
 
-cambiar_voz_masculina()
+# Memoria para recordatorios
+recordatorios = []
 
-# Función para hablar
+# URL de actualización automática
+ACTUALIZACION_URL = "https://raw.githubusercontent.com/OMEGA2639/Nick-asistente/main/IA-Nick/Nick.py"
+
 def hablar(texto):
-    print("NICK:", texto)
-    voz.say(texto)
-    voz.runAndWait()
+    print(f"{nombre_asistente}: {texto}")
+    engine.say(texto)
+    engine.runAndWait()
 
-# Función para escuchar
 def escuchar():
-    recognizer = sr.Recognizer()
+    r = sr.Recognizer()
     with sr.Microphone() as source:
-        # Ajustar el umbral de ruido para que Nick ignore ruidos de fondo
-        recognizer.adjust_for_ambient_noise(source, duration=1)
-        print("Escuchando... (Solo escuchará cuando hables)")
+        print("Escuchando...")
+        r.pause_threshold = 1.0
+        r.adjust_for_ambient_noise(source)
+        audio = r.listen(source)
 
-        try:
-            audio = recognizer.listen(source, timeout=5)  # Timeout para no quedarse esperando por siempre
-            comando = recognizer.recognize_google(audio, language="es-ES")
-            print("Tú:", comando)
-            return comando.lower()
-        except sr.UnknownValueError:
-            return ""  # No dice nada si no entendió lo que dijiste
-        except sr.RequestError:
-            hablar("Hubo un problema de conexión.")
-            return ""
-        except sr.WaitTimeoutError:
-            return ""  # Si no escuchó nada en el tiempo dado
+    try:
+        comando = r.recognize_google(audio, language="es-ES").lower()
+        print(f"Tú: {comando}")
+        return comando
+    except sr.UnknownValueError:
+        return ""
+    except sr.RequestError:
+        hablar("Lo siento, hubo un error con el reconocimiento de voz.")
+        return ""
 
-# Guardar recordatorio
-def guardar_recordatorio(texto):
-    with open("recordatorios.txt", "a", encoding="utf-8") as archivo:
-        archivo.write(texto + "\n")
-    hablar("He recordado eso.")
-
-# Leer recordatorios
-def leer_recordatorios():
-    if os.path.exists("recordatorios.txt"):
-        with open("recordatorios.txt", "r", encoding="utf-8") as archivo:
-            recordatorios = archivo.readlines()
-        if recordatorios:
-            hablar("Esto es lo que recuerdo:")
-            for r in recordatorios:
-                hablar(r.strip())
-        else:
-            hablar("No tengo nada guardado todavía.")
-    else:
-        hablar("Aún no tengo nada que recordar.")
-
-# Buscar en internet
-def buscar_en_internet(consulta):
-    if not consulta or len(consulta.strip()) == 0:
-        hablar("¿Qué deseas que busque?")
-        nueva_consulta = escuchar()
-        if nueva_consulta:
-            buscar_en_internet(nueva_consulta)
-        else:
-            hablar("No entendí lo que quieres que busque.")
-        return
-
-    url = f"https://www.bing.com/search?q={consulta.replace(' ', '+')}"
+def buscar_en_edge(consulta):
     edge_path = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
-    if os.path.exists(edge_path):
-        hablar(f"Buscando {consulta} en Microsoft Edge.")
-        os.system(f'"{edge_path}" "{url}"')
-    else:
-        hablar("No encontré Microsoft Edge instalado.")
+    if not os.path.exists(edge_path):
+        hablar("No encontré Microsoft Edge en tu computadora.")
+        return
+    url = f"https://www.bing.com/search?q={consulta.replace(' ', '+')}"
+    webbrowser.register('edge', None, webbrowser.BackgroundBrowser(edge_path))
+    webbrowser.get('edge').open(url)
+    hablar(f"Buscando {consulta} en Microsoft Edge")
 
-# Procesar comandos
+def descargar_actualizacion():
+    try:
+        response = requests.get(ACTUALIZACION_URL)
+        if response.status_code == 200:
+            with open("Nick.py", "wb") as f:
+                f.write(response.content)
+            hablar("Código actualizado correctamente.")
+        else:
+            hablar("No se pudo descargar la actualización.")
+    except Exception as e:
+        hablar("Ocurrió un error al intentar actualizar.")
+
 def procesar_comando(comando):
-    # Recordar algo
-    if comando.startswith("recuérdame que") or comando.startswith("recuerda que") or comando.startswith("apunta que"):
-        recordatorio = comando.replace("recuérdame que", "").replace("recuerda que", "").replace("apunta que", "").strip()
-        guardar_recordatorio(recordatorio)
-
-    # Leer lo recordado
-    elif "qué me has recordado" in comando or "qué recuerdas" in comando or "qué recordaste" in comando or "qué sabes de mí" in comando:
-        leer_recordatorios()
-
+    if any(palabra in comando for palabra in ["cómo te llamas", "tu nombre"]):
+        hablar(f"Me llamo {nombre_asistente}")
+    elif "cómo me llamo" in comando:
+        hablar(f"Te llamas {usuario}")
+    elif "abre el navegador" in comando:
+        buscar_en_edge("inicio")
+    elif "busca" in comando or "investiga" in comando:
+        consulta = comando.replace("busca", "").replace("investiga", "").strip()
+        if consulta:
+            buscar_en_edge(consulta)
+        else:
+            hablar("¿Qué deseas que busque?")
+    elif any(palabra in comando for palabra in ["detente", "silencio", "para de hablar"]):
+        hablar("De acuerdo. Estaré en silencio.")
+        return False
+    elif "actualiza" in comando or "descarga actualización" in comando:
+        descargar_actualizacion()
+    elif "recuérdame" in comando:
+        recordatorio = comando.split("recuérdame", 1)[-1].strip()
+        if recordatorio:
+            recordatorios.append(recordatorio)
+            hablar(f"He recordado: {recordatorio}")
+        else:
+            hablar("¿Qué quieres que recuerde?")
+    elif "qué me has recordado" in comando:
+        if recordatorios:
+            hablar("Me pediste que recuerde lo siguiente:")
+            for r in recordatorios:
+                hablar(r)
+        else:
+            hablar("Aún no me has pedido que recuerde nada.")
     elif "hora" in comando:
-        ahora = datetime.datetime.now().strftime("%H:%M")
-        hablar(f"Son las {ahora}.")
-
-    elif "navegador" in comando and ("abre" in comando or "abrir" in comando):
-        hablar("Abriendo Microsoft Edge.")
-        os.system("start msedge")
-
-    elif "busca" in comando or "buscar" in comando:
-        palabras = comando.split()
-        try:
-            indice = palabras.index("busca") if "busca" in palabras else palabras.index("buscar")
-            consulta = " ".join(palabras[indice + 1:])
-            buscar_en_internet(consulta)
-        except:
-            hablar("No entendí bien qué quieres que busque.")
-
-    elif "cómo te llamas" in comando or "cuál es tu nombre" in comando:
-        hablar("Mi nombre es Nick, tu asistente personal.")
-
-    elif "cómo me llamo" in comando or "cuál es mi nombre" in comando:
-        hablar("Tú te llamas Anderson.")
-
-    elif any(p in comando for p in ["salir", "adiós", "me voy", "nos vemos"]):
-        hablar("Hasta luego, Anderson.")
-        exit()
-
-    elif any(p in comando for p in ["detente", "parar", "ya basta", "silencio", "detén la conversación"]):
-        hablar("Conversación detenida. Hasta luego.")
-        exit()
-
+        hora = datetime.datetime.now().strftime("%H:%M")
+        hablar(f"Son las {hora}")
     else:
-        hablar("No reconozco ese comando todavía.")
+        hablar("No entendí ese comando.")
+    return True
 
-# INICIO DEL ASISTENTE
-hablar("Hola Anderson. Soy Nick, tu asistente personal. ¿Qué quieres que recuerde o haga hoy?")
-while True:
-    comando = escuchar()
-    if comando:
-        procesar_comando(comando)
+# Programa principal
+def iniciar_nick():
+    hablar(f"Hola {usuario}, soy {nombre_asistente}. ¿En qué puedo ayudarte?")
+    activo = True
+    while activo:
+        comando = escuchar()
+        if comando:
+            activo = procesar_comando(comando)
+
+if __name__ == "__main__":
+    iniciar_nick()
+
+
